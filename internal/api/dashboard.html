@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conveyor · Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='8' width='5' height='5' rx='1' fill='%233ccf7e'/%3E%3Crect x='10.5' y='6' width='5' height='7' rx='1' fill='%23f2b23a'/%3E%3Crect x='17' y='9' width='4' height='4' rx='1' fill='%23a78bfa'/%3E%3Crect x='2' y='15' width='20' height='4' rx='2' fill='%235b9dff'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0e13; --panel: #12161d; --panel-2: #171c25; --line: #232a36; --line-2: #2d3644;
+    --text: #e6eaf0; --muted: #8a94a6; --dim: #5d6779;
+    --ready: #5b9dff; --scheduled: #a78bfa; --running: #f2b23a; --succeeded: #3ccf7e;
+    --dead: #ff5d5d; --cancelled: #7a8396; --accent: #5b9dff;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .mono { font-family: var(--mono); }
+
+  /* ---------- header ---------- */
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line);
+           position: sticky; top: 0; background: rgba(11,14,19,.92); backdrop-filter: blur(8px); z-index: 5; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: .2px; font-size: 16px; }
+  .brand svg { display: block; }
+  .live { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; margin-left: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--succeeded); box-shadow: 0 0 0 0 rgba(60,207,126,.6); animation: pulse 2s infinite; }
+  .live.down .dot { background: var(--dead); animation: none; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(60,207,126,.5); } 70% { box-shadow: 0 0 0 8px rgba(60,207,126,0); } 100% { box-shadow: 0 0 0 0 rgba(60,207,126,0); } }
+  header .spacer { flex: 1; }
+  .btn { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 12px; font-size: 13px; transition: border-color .15s, background .15s; }
+  .btn:hover { border-color: #3d4860; background: #1c2230; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #06101f; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.danger { color: var(--dead); }
+  .btn.small { padding: 3px 9px; font-size: 12px; border-radius: 6px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+
+  main { padding: 20px 24px 40px; max-width: 1500px; margin: 0 auto; }
+
+  /* ---------- totals ---------- */
+  .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; position: relative; overflow: hidden; cursor: pointer; transition: border-color .15s; }
+  .tile:hover { border-color: var(--line-2); }
+  .tile.active { border-color: var(--c); }
+  .tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c); }
+  .tile .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  .tile .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile .value.bump { animation: bump .5s; }
+  @keyframes bump { 30% { color: var(--c); } }
+
+  .layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .panel h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; }
+  .panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .panel-body { padding: 14px 16px; }
+  .side { display: grid; gap: 20px; }
+
+  /* ---------- queues ---------- */
+  .queue { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .queue:last-child { border-bottom: 0; padding-bottom: 2px; }
+  .queue:first-child { padding-top: 2px; }
+  .queue-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .queue-name { font-family: var(--mono); font-weight: 600; cursor: pointer; }
+  .queue-name:hover { color: var(--accent); }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid; }
+  .badge.paused { color: var(--running); border-color: rgba(242,178,58,.4); background: rgba(242,178,58,.08); }
+  .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); }
+  .bar span { display: block; height: 100%; transition: width .5s ease; }
+  .queue-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .queue-meta b { color: var(--text); font-weight: 600; }
+  .legend-dot { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 4px; vertical-align: 1px; }
+  .queue-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .latency.warn b { color: var(--running); }
+  .latency.bad b { color: var(--dead); }
+  .empty { color: var(--dim); text-align: center; padding: 26px 10px; font-size: 13px; }
+
+  /* ---------- enqueue form ---------- */
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .chip { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; }
+  .chip:hover { border-color: var(--accent); }
+  .chip.on { border-color: var(--accent); background: rgba(91,157,255,.12); color: #cfe0ff; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 10px; outline: none; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { font-family: var(--mono); font-size: 12.5px; min-height: 84px; resize: vertical; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .form-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 6px; }
+
+  /* ---------- jobs ---------- */
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .filters select { width: auto; padding: 4px 8px; font-size: 12.5px; }
+  .count { color: var(--dim); font-size: 12px; margin-left: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; font-variant-numeric: tabular-nums; }
+  tbody tr { cursor: pointer; transition: background .15s; }
+  tbody tr:hover { background: var(--panel-2); }
+  tbody tr.flash { animation: flash 1.2s ease; }
+  @keyframes flash { 0% { background: rgba(91,157,255,.18); } 100% { background: transparent; } }
+  tbody tr.selected { background: #1a2130; }
+  .id { color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+  .kind { font-family: var(--mono); font-size: 13px; }
+  .q { color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+  .time { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .err { color: #ff9b9b; font-size: 12px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 550; padding: 2px 9px 2px 8px; border-radius: 999px;
+          color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+  .pill.running::before { animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .attempts { font-size: 12.5px; color: var(--muted); }
+  .attempts.retrying { color: var(--running); }
+  .more { display: flex; justify-content: center; padding: 12px; }
+
+  /* ---------- drawer ---------- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 10; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--panel); border-left: 1px solid var(--line-2);
+            transform: translateX(100%); transition: transform .25s ease; z-index: 11; display: flex; flex-direction: column; }
+  .drawer.open { transform: none; }
+  .drawer-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .drawer-head h3 { margin: 0; font-size: 16px; }
+  .drawer-body { padding: 16px 20px 30px; overflow: auto; flex: 1; }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 7px 12px; font-size: 13px; margin-bottom: 18px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .section-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin: 18px 0 8px; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; font: 12.5px/1.5 var(--mono); overflow: auto; max-height: 260px; white-space: pre-wrap; word-break: break-word; }
+  .timeline { list-style: none; margin: 0; padding: 0; }
+  .timeline li { position: relative; padding: 0 0 12px 20px; border-left: 2px solid var(--line-2); margin-left: 5px; }
+  .timeline li:last-child { border-left-color: transparent; }
+  .timeline li::before { content: ""; position: absolute; left: -6px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--dead); border: 2px solid var(--panel); }
+  .timeline .t-head { font-size: 12px; color: var(--muted); }
+  .timeline .t-msg { font: 12.5px/1.45 var(--mono); color: #ffb3b3; white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+  .drawer-actions { display: flex; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--line); }
+
+  /* ---------- toasts / modal ---------- */
+  .toasts { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: grid; gap: 8px; z-index: 20; }
+  .toast { background: #1d2430; border: 1px solid var(--line-2); border-left: 3px solid var(--succeeded); padding: 9px 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.4); animation: in .2s ease; }
+  .toast.error { border-left-color: var(--dead); }
+  @keyframes in { from { opacity: 0; transform: translateY(6px); } }
+  .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); z-index: 30; }
+  .modal.open { display: flex; }
+  .modal-card { background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; padding: 20px; width: min(420px, 92vw); }
+  .modal-card h3 { margin: 0 0 6px; }
+  .modal-card p { color: var(--muted); margin: 0 0 12px; font-size: 13px; }
+
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; }
+    .totals { grid-template-columns: repeat(3, 1fr); }
+    .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="2" y="15" width="20" height="4" rx="2" stroke="#5b9dff" stroke-width="1.8"/>
+      <circle cx="6" cy="17" r=".9" fill="#5b9dff"/><circle cx="12" cy="17" r=".9" fill="#5b9dff"/><circle cx="18" cy="17" r=".9" fill="#5b9dff"/>
+      <rect x="4" y="8" width="5" height="5" rx="1" fill="#3ccf7e"/><rect x="10.5" y="6" width="5" height="7" rx="1" fill="#f2b23a"/><rect x="17" y="9" width="4" height="4" rx="1" fill="#a78bfa"/>
+    </svg>
+    Conveyor
+  </div>
+  <span class="live" id="live"><span class="dot"></span><span id="live-text">Connecting…</span></span>
+  <div class="spacer"></div>
+  <button class="btn" id="pause-btn" title="Pause auto-refresh">Pause updates</button>
+  <button class="btn" id="key-btn">API key</button>
+</header>
+
+<main>
+  <section class="totals" id="totals"></section>
+
+  <div class="layout">
+    <div class="side">
+      <section class="panel">
+        <div class="panel-head"><h2>Queues</h2></div>
+        <div class="panel-body" id="queues"><div class="empty">Loading…</div></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Enqueue a job</h2></div>
+        <form class="panel-body" id="enqueue-form" autocomplete="off">
+          <div class="presets" id="presets"></div>
+          <div class="row">
+            <div><label for="f-kind">Kind</label><input id="f-kind" required class="mono"></div>
+            <div><label for="f-queue">Queue</label><input id="f-queue" value="default" class="mono"></div>
+          </div>
+          <label for="f-payload">Payload (JSON)</label>
+          <textarea id="f-payload" spellcheck="false">{}</textarea>
+          <div class="row">
+            <div><label for="f-priority">Priority</label><input id="f-priority" type="number" min="-100" max="100" value="0"></div>
+            <div><label for="f-attempts">Max attempts</label><input id="f-attempts" type="number" min="1" max="100" value="5"></div>
+          </div>
+          <div class="row">
+            <div><label for="f-delay">Delay (seconds)</label><input id="f-delay" type="number" min="0" step="any" value="0"></div>
+            <div><label for="f-unique">Unique key</label><input id="f-unique" placeholder="optional"></div>
+          </div>
+          <div class="form-actions">
+            <button class="btn primary" type="submit">Enqueue</button>
+            <select id="f-count" style="width:auto" title="How many copies to enqueue">
+              <option value="1">× 1</option><option value="10">× 10</option><option value="100">× 100</option><option value="1000">× 1000</option>
+            </select>
+          </div>
+          <div class="hint" id="preset-hint"></div>
+        </form>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Jobs</h2>
+        <div class="filters" style="margin-left:8px">
+          <select id="filter-state" aria-label="Filter by state">
+            <option value="">All states</option><option value="pending">Pending</option><option value="running">Running</option>
+            <option value="succeeded">Succeeded</option><option value="dead">Dead</option><option value="cancelled">Cancelled</option>
+          </select>
+          <select id="filter-queue" aria-label="Filter by queue"><option value="">All queues</option></select>
+        </div>
+        <span class="count" id="job-count"></span>
+      </div>
+      <table>
+        <thead><tr>
+          <th style="width:70px">ID</th><th>Kind</th><th class="hide-sm">Queue</th><th>State</th>
+          <th>Attempts</th><th class="hide-sm">Last error</th><th>Updated</th>
+        </tr></thead>
+        <tbody id="jobs"></tbody>
+      </table>
+      <div class="empty" id="jobs-empty" hidden>No jobs yet. Enqueue one from the panel on the left.</div>
+      <div class="more" id="more" hidden><button class="btn" id="more-btn">Load more</button></div>
+    </section>
+  </div>
+</main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h3 id="d-title">Job</h3><span id="d-state"></span>
+    <div class="spacer" style="flex:1"></div>
+    <button class="btn small" id="d-close" aria-label="Close">Close</button>
+  </div>
+  <div class="drawer-body" id="d-body"></div>
+  <div class="drawer-actions" id="d-actions"></div>
+</aside>
+
+<div class="modal" id="key-modal">
+  <form class="modal-card" id="key-form">
+    <h3>API key</h3>
+    <p>This server requires a key (the <span class="mono">CONVEYOR_API_KEY</span> it was started with). It's kept in this browser only.</p>
+    <input id="key-input" type="password" class="mono" placeholder="paste key">
+    <div class="form-actions"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="key-cancel">Cancel</button></div>
+  </form>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+(() => {
+  "use strict";
+  const STATES = {
+    ready:     { label: "Ready",     color: "var(--ready)" },
+    scheduled: { label: "Scheduled", color: "var(--scheduled)" },
+    running:   { label: "Running",   color: "var(--running)" },
+    succeeded: { label: "Succeeded", color: "var(--succeeded)" },
+    dead:      { label: "Dead",      color: "var(--dead)" },
+    cancelled: { label: "Cancelled", color: "var(--cancelled)" },
+  };
+  // Display-only state: pending again after a failure, waiting out its backoff.
+  const RETRYING = { label: "Retrying", color: "#ff9f5a" };
+  const PRESETS = [
+    { name: "Flaky (retries)", kind: "demo.flaky", queue: "default", payload: { fail_times: 2 },
+      hint: "Fails twice, then succeeds. Watch attempts climb." },
+    { name: "Email", kind: "email.send", queue: "emails", payload: { to: "ada@example.com", subject: "Welcome" },
+      hint: "~10% hit a simulated transient SMTP error and get retried." },
+    { name: "Bad email", kind: "email.send", queue: "emails", payload: { to: "not-an-email" },
+      hint: "Permanent failure: goes straight to dead with no retries." },
+    { name: "Slow report", kind: "report.generate", queue: "reports", payload: { rows: 30000, ms_per_chunk: 1000 },
+      hint: "Runs ~30s. Open it while running and hit Cancel." },
+    { name: "Webhook", kind: "webhook.deliver", queue: "webhooks", payload: { url: "https://example.com/hook", body: { event: "order.paid" } },
+      hint: "Real HTTP POST. 4xx → dead, 5xx/network → retried, 429 → snoozed." },
+    { name: "Scheduled", kind: "demo.flaky", queue: "default", payload: { fail_times: 0 }, delay: 20,
+      hint: "Runs 20 seconds from now (shows as Scheduled until then)." },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") n.className = v;
+      else if (k === "style") n.style.cssText = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid instanceof Node ? kid : String(kid));
+    return n;
+  };
+
+  // ---------- storage (best effort) ----------
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
+  };
+  let apiKey = store.get("conveyor.apiKey") || "";
+
+  // ---------- API ----------
+  async function api(method, path, body) {
+    const headers = { "Accept": "application/json" };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (apiKey) headers["Authorization"] = "Bearer " + apiKey;
+    const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    let data = null;
+    try { data = await res.json(); } catch {}
+    if (res.status === 401) { openKeyModal(); throw new Error("API key required"); }
+    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+    return data;
+  }
+
+  // ---------- time ----------
+  function ago(iso) {
+    if (!iso) return "—";
+    const s = (Date.now() - new Date(iso).getTime()) / 1000;
+    const future = s < 0, a = Math.abs(s);
+    const txt = a < 5 ? "just now" : a < 60 ? `${Math.floor(a)}s` : a < 3600 ? `${Math.floor(a / 60)}m` : a < 86400 ? `${Math.floor(a / 3600)}h` : `${Math.floor(a / 86400)}d`;
+    if (txt === "just now") return txt;
+    return future ? `in ${txt}` : `${txt} ago`;
+  }
+  const fmtAge = (sec) => sec < 1 ? "<1s" : sec < 60 ? `${Math.round(sec)}s` : sec < 3600 ? `${Math.round(sec / 60)}m` : `${(sec / 3600).toFixed(1)}h`;
+  const fmtNum = (n) => Number(n).toLocaleString();
+
+  // A pending job whose run_at is in the future is "scheduled" for display.
+  function displayState(j) {
+    if (j.state === "pending") {
+      if (new Date(j.run_at) <= new Date()) return "ready";
+      return j.attempts > 0 ? "retrying" : "scheduled";
+    }
+    return j.state;
+  }
+  function pill(state) {
+    const s = STATES[state] || (state === "retrying" ? RETRYING : { label: state, color: "var(--muted)" });
+    return el("span", { class: "pill " + state, style: `--c:${s.color}` }, s.label);
+  }
+
+  // ---------- state ----------
+  const ui = { paused: false, stateFilter: "", queueFilter: "", limit: 50, nextBefore: null, selected: null, lastSeen: new Map(), totals: {} };
+
+  // ---------- totals ----------
+  function renderTotals(queues) {
+    const sum = { ready: 0, scheduled: 0, running: 0, succeeded: 0, dead: 0, cancelled: 0 };
+    for (const q of queues) for (const k in sum) sum[k] += q[k];
+    const wrap = $("totals");
+    if (!wrap.children.length) {
+      for (const k of Object.keys(sum)) {
+        wrap.append(el("div", { class: "tile", "data-k": k, style: `--c:${STATES[k].color}`, title: `Show ${STATES[k].label.toLowerCase()} jobs`,
+          onclick: () => setStateFilter(k) },
+          el("div", { class: "label" }, STATES[k].label), el("div", { class: "value" }, "0")));
+      }
+    }
+    for (const tile of wrap.children) {
+      const k = tile.dataset.k, v = tile.querySelector(".value");
+      const next = fmtNum(sum[k]);
+      if (v.textContent !== next) { v.textContent = next; v.classList.remove("bump"); void v.offsetWidth; v.classList.add("bump"); }
+      const filterState = k === "ready" || k === "scheduled" ? "pending" : k;
+      tile.classList.toggle("active", ui.stateFilter === filterState);
+    }
+  }
+
+  function setStateFilter(k) {
+    const s = k === "ready" || k === "scheduled" ? "pending" : k;
+    ui.stateFilter = ui.stateFilter === s ? "" : s;
+    $("filter-state").value = ui.stateFilter;
+    resetPaging(); refresh();
+  }
+
+  // ---------- queues ----------
+  function renderQueues(queues) {
+    const box = $("queues");
+    box.replaceChildren();
+    if (!queues.length) { box.append(el("div", { class: "empty" }, "No queues yet. They appear when the first job is enqueued.")); }
+    for (const q of queues) {
+      const total = Object.keys(STATES).reduce((a, k) => a + (q[k] || 0), 0) || 1;
+      const bar = el("div", { class: "bar", title: "Share of jobs by state" },
+        Object.keys(STATES).map(k => q[k] ? el("span", { style: `width:${(q[k] / total) * 100}%;background:${STATES[k].color}`, title: `${STATES[k].label}: ${q[k]}` }) : null));
+      const latencyCls = q.oldest_ready_age_seconds > 60 ? "bad" : q.oldest_ready_age_seconds > 10 ? "warn" : "";
+      const meta = el("div", { class: "queue-meta" },
+        ["ready", "running", "succeeded", "dead"].map(k =>
+          el("span", {}, el("span", { class: "legend-dot", style: `background:${STATES[k].color}` }), el("b", {}, fmtNum(q[k])), " ", STATES[k].label.toLowerCase())),
+        q.scheduled ? el("span", {}, el("span", { class: "legend-dot", style: `background:${STATES.scheduled.color}` }), el("b", {}, fmtNum(q.scheduled)), " scheduled") : null,
+        q.ready ? el("span", { class: "latency " + latencyCls, title: "How long the oldest runnable job has been waiting" }, "oldest waiting ", el("b", {}, fmtAge(q.oldest_ready_age_seconds))) : null);
+      const actions = el("div", { class: "queue-actions" },
+        q.paused
+          ? el("button", { class: "btn small", onclick: () => act(`/v1/queues/${enc(q.queue)}/resume`, `Resumed ${q.queue}`) }, "▶ Resume")
+          : el("button", { class: "btn small", onclick: () => act(`/v1/queues/${enc(q.queue)}/pause`, `Paused ${q.queue}`) }, "❚❚ Pause"),
+        el("button", { class: "btn small", disabled: !q.dead, onclick: () => act(`/v1/queues/${enc(q.queue)}/retry-dead`, (d) => `Re-queued ${d.requeued} dead job(s)`) },
+          `↻ Retry dead${q.dead ? ` (${fmtNum(q.dead)})` : ""}`));
+      box.append(el("div", { class: "queue" },
+        el("div", { class: "queue-top" },
+          el("span", { class: "queue-name", title: "Show this queue's jobs", onclick: () => { ui.queueFilter = q.queue; $("filter-queue").value = q.queue; resetPaging(); refresh(); } }, q.queue),
+          q.paused ? el("span", { class: "badge paused" }, "paused") : null),
+        bar, meta, actions));
+    }
+    // keep the queue filter options in sync
+    const sel = $("filter-queue"), current = sel.value;
+    const names = queues.map(q => q.queue);
+    const have = [...sel.options].slice(1).map(o => o.value);
+    if (names.join() !== have.join()) {
+      sel.replaceChildren(el("option", { value: "" }, "All queues"), names.map(n => el("option", { value: n }, n)));
+      sel.value = names.includes(current) ? current : "";
+    }
+  }
+  const enc = encodeURIComponent;
+
+  // ---------- jobs ----------
+  function renderJobs(jobs) {
+    const body = $("jobs");
+    body.replaceChildren();
+    for (const j of jobs) {
+      const st = displayState(j);
+      const sig = `${st}|${j.attempts}`;
+      const prev = ui.lastSeen.get(j.id);
+      ui.lastSeen.set(j.id, sig);
+      const retrying = j.state === "pending" && j.attempts > 0;
+      const tr = el("tr", { class: (prev && prev !== sig ? "flash " : "") + (ui.selected === j.id ? "selected" : ""), onclick: () => openJob(j.id) },
+        el("td", { class: "id" }, "#" + j.id),
+        el("td", { class: "kind" }, j.kind),
+        el("td", { class: "q hide-sm" }, j.queue),
+        el("td", {}, pill(st)),
+        el("td", { class: "attempts" + (retrying ? " retrying" : ""), title: retrying ? "Waiting to retry" : "" }, `${j.attempts} / ${j.max_attempts}`),
+        el("td", { class: "hide-sm" }, j.last_error && j.state !== "succeeded" ? el("div", { class: "err", title: j.last_error }, j.last_error) : el("span", { class: "time" }, "—")),
+        el("td", { class: "time", title: j.updated_at }, st === "scheduled" || st === "retrying" ? (st === "retrying" ? "next try " : "runs ") + ago(j.run_at) : ago(j.updated_at)));
+      body.append(tr);
+    }
+    $("jobs-empty").hidden = jobs.length > 0;
+    $("job-count").textContent = jobs.length ? `showing ${fmtNum(jobs.length)}` : "";
+  }
+
+  function resetPaging() { ui.limit = 50; ui.lastSeen.clear(); }
+
+  async function loadJobs() {
+    const p = new URLSearchParams({ limit: String(ui.limit) });
+    if (ui.stateFilter) p.set("state", ui.stateFilter);
+    if (ui.queueFilter) p.set("queue", ui.queueFilter);
+    const data = await api("GET", "/v1/jobs?" + p);
+    renderJobs(data.jobs);
+    ui.nextBefore = data.next_before || null;
+    $("more").hidden = !ui.nextBefore || ui.limit >= 500;
+  }
+
+  // ---------- drawer ----------
+  async function openJob(id) {
+    ui.selected = id;
+    for (const tr of $("jobs").children) tr.classList.toggle("selected", tr.firstChild.textContent === "#" + id);
+    $("drawer").classList.add("open"); $("scrim").classList.add("open");
+    $("drawer").setAttribute("aria-hidden", "false");
+    await renderDrawer();
+  }
+  function closeDrawer() {
+    ui.selected = null;
+    $("drawer").classList.remove("open"); $("scrim").classList.remove("open");
+    $("drawer").setAttribute("aria-hidden", "true");
+    for (const tr of $("jobs").children) tr.classList.remove("selected");
+  }
+  const pretty = (v) => { try { return JSON.stringify(v, null, 2); } catch { return String(v); } };
+
+  async function renderDrawer() {
+    if (ui.selected == null) return;
+    let j;
+    try { j = (await api("GET", `/v1/jobs/${ui.selected}`)).job; }
+    catch (e) { $("d-body").replaceChildren(el("div", { class: "empty" }, e.message)); return; }
+    const st = displayState(j);
+    $("d-title").textContent = `Job #${j.id}`;
+    $("d-state").replaceChildren(pill(st));
+    const row = (k, v) => [el("dt", {}, k), el("dd", {}, v ?? "—")];
+    const dur = j.started_at && j.finished_at ? ((new Date(j.finished_at) - new Date(j.started_at)) / 1000).toFixed(2) + "s (last attempt)" : null;
+    const errs = Array.isArray(j.errors) ? j.errors.slice().reverse() : [];
+    $("d-body").replaceChildren(...[
+      el("dl", { class: "kv" },
+        row("Kind", el("span", { class: "mono" }, j.kind)),
+        row("Queue", el("span", { class: "mono" }, j.queue)),
+        row("Attempts", `${j.attempts} of ${j.max_attempts}`),
+        row("Priority", String(j.priority)),
+        row("Timeout", `${(j.timeout_ms / 1000).toLocaleString()}s per attempt`),
+        j.unique_key ? row("Unique key", el("span", { class: "mono" }, j.unique_key)) : null,
+        row(st === "scheduled" || st === "retrying" ? "Next run" : "Run at", `${new Date(j.run_at).toLocaleString()} (${ago(j.run_at)})`),
+        row("Created", `${new Date(j.created_at).toLocaleString()} (${ago(j.created_at)})`),
+        j.started_at ? row("Started", new Date(j.started_at).toLocaleString()) : null,
+        j.finished_at ? row("Finished", new Date(j.finished_at).toLocaleString()) : null,
+        dur ? row("Duration", dur) : null,
+        j.locked_by ? row("Worker", el("span", { class: "mono" }, j.locked_by)) : null,
+        j.locked_until ? row("Lease until", new Date(j.locked_until).toLocaleTimeString()) : null),
+      el("div", { class: "section-title" }, "Payload"), el("pre", {}, pretty(j.payload)),
+      j.result != null ? [el("div", { class: "section-title" }, "Result"), el("pre", {}, pretty(j.result))] : null,
+      errs.length ? [el("div", { class: "section-title" }, `Error history (${errs.length})`),
+        el("ul", { class: "timeline" }, errs.map(e =>
+          el("li", {}, el("div", { class: "t-head" }, `Attempt ${e.attempt} · ${new Date(e.at).toLocaleTimeString()}${e.worker ? " · " + e.worker : ""}`),
+            el("div", { class: "t-msg" }, e.error))))] : null,
+    ].flat().filter(Boolean));
+
+    const actions = [];
+    if (j.state === "pending" || j.state === "running")
+      actions.push(el("button", { class: "btn danger", onclick: () => act(`/v1/jobs/${j.id}/cancel`, `Cancelled job #${j.id}`) }, "Cancel job"));
+    if (j.state === "dead" || j.state === "cancelled")
+      actions.push(el("button", { class: "btn primary", onclick: () => act(`/v1/jobs/${j.id}/retry`, `Job #${j.id} re-queued`) }, "Retry job"));
+    actions.push(el("button", { class: "btn", onclick: () => {
+      loadPreset({ kind: j.kind, queue: j.queue, payload: j.payload }); closeDrawer(); toast("Copied into the enqueue form");
+    } }, "Clone"));
+    $("d-actions").replaceChildren(...actions);
+  }
+
+  // ---------- actions ----------
+  async function act(path, message) {
+    try {
+      const data = await api("POST", path);
+      toast(typeof message === "function" ? message(data) : message);
+      await refresh(true);
+    } catch (e) { toast(e.message, true); }
+  }
+
+  function toast(msg, isError) {
+    const t = el("div", { class: "toast" + (isError ? " error" : "") }, msg);
+    $("toasts").append(t);
+    setTimeout(() => t.remove(), 3200);
+  }
+
+  // ---------- enqueue form ----------
+  function loadPreset(p) {
+    $("f-kind").value = p.kind; $("f-queue").value = p.queue || "default";
+    $("f-payload").value = pretty(p.payload ?? {});
+    $("f-delay").value = p.delay || 0;
+    $("preset-hint").textContent = p.hint || "";
+  }
+  function renderPresets() {
+    const box = $("presets");
+    PRESETS.forEach((p, i) => box.append(el("button", { type: "button", class: "chip" + (i === 0 ? " on" : ""), onclick: (e) => {
+      for (const c of box.children) c.classList.remove("on");
+      e.currentTarget.classList.add("on"); loadPreset(p);
+    } }, p.name)));
+    loadPreset(PRESETS[0]);
+  }
+
+  $("enqueue-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    let payload;
+    try { payload = JSON.parse($("f-payload").value || "{}"); }
+    catch { toast("Payload isn't valid JSON", true); $("f-payload").focus(); return; }
+    const job = {
+      kind: $("f-kind").value.trim(), queue: $("f-queue").value.trim() || "default", payload,
+      priority: Number($("f-priority").value) || 0, max_attempts: Number($("f-attempts").value) || 5,
+      delay_seconds: Number($("f-delay").value) || 0,
+    };
+    const unique = $("f-unique").value.trim();
+    if (unique) job.unique_key = unique;
+    const n = Number($("f-count").value);
+    const btn = e.submitter; if (btn) btn.disabled = true;
+    try {
+      if (n === 1) {
+        const d = await api("POST", "/v1/jobs", job);
+        toast(d.created ? `Enqueued job #${d.job.id}` : `Duplicate key, existing job #${d.job.id} returned`);
+      } else {
+        const d = await api("POST", "/v1/jobs/batch", { jobs: Array.from({ length: n }, () => job) });
+        toast(`Enqueued ${fmtNum(d.inserted)} jobs${d.skipped ? ` (${d.skipped} deduplicated)` : ""}`);
+      }
+      await refresh(true);
+    } catch (err) { toast(err.message, true); }
+    finally { if (btn) btn.disabled = false; }
+  });
+
+  // ---------- refresh loop ----------
+  let inflight = false;
+  async function refresh(force) {
+    if (inflight || (ui.paused && !force)) return;
+    inflight = true;
+    try {
+      const { queues } = await api("GET", "/v1/queues");
+      renderTotals(queues); renderQueues(queues);
+      await loadJobs();
+      if (ui.selected != null) await renderDrawer();
+      setLive(true);
+    } catch (e) {
+      setLive(false, e.message);
+    } finally { inflight = false; }
+  }
+  function setLive(ok, msg) {
+    $("live").classList.toggle("down", !ok);
+    $("live-text").textContent = ok ? (ui.paused ? "Paused" : "Live") : "Disconnected: " + (msg || "server unreachable");
+  }
+
+  // ---------- wiring ----------
+  $("filter-state").addEventListener("change", (e) => { ui.stateFilter = e.target.value; resetPaging(); refresh(true); });
+  $("filter-queue").addEventListener("change", (e) => { ui.queueFilter = e.target.value; resetPaging(); refresh(true); });
+  $("more-btn").addEventListener("click", () => { ui.limit = Math.min(ui.limit + 50, 500); refresh(true); });
+  $("d-close").addEventListener("click", closeDrawer);
+  $("scrim").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+  $("pause-btn").addEventListener("click", () => {
+    ui.paused = !ui.paused;
+    $("pause-btn").textContent = ui.paused ? "Resume updates" : "Pause updates";
+    setLive(true); if (!ui.paused) refresh(true);
+  });
+
+  function openKeyModal() { $("key-modal").classList.add("open"); $("key-input").value = apiKey; $("key-input").focus(); }
+  $("key-btn").addEventListener("click", openKeyModal);
+  $("key-cancel").addEventListener("click", () => $("key-modal").classList.remove("open"));
+  $("key-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    apiKey = $("key-input").value.trim();
+    store.set("conveyor.apiKey", apiKey || null);
+    $("key-modal").classList.remove("open");
+    refresh(true);
+  });
+
+  renderPresets();
+  refresh(true);
+  setInterval(refresh, 1500);
+  // Keep relative times fresh even when nothing changes.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true); });
+})();
+</script>
+</body>
+</html>
